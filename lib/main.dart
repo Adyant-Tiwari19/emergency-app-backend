@@ -2,13 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-// Import your secret config file
 import 'package:flutter_app/config.dart'; 
+import 'package:flutter_app/staff_login_screen.dart'; // Import the new UI file
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Use the constants from your ignored config.dart
   await Firebase.initializeApp(
     options: const FirebaseOptions(
       apiKey: FirebaseConfig.apiKey,
@@ -29,21 +27,19 @@ class RapidCrisisApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Rapid Crisis Response',
+      title: 'HealthCare Portal',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF0A0A0A),
-        cardTheme: const CardThemeData(
-          color: Color(0xFF1E1E1E),
-          elevation: 2,
-        ),
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        useMaterial3: true,
+        fontFamily: 'Inter', // Matches the premium design feel
       ),
       home: const AuthGate(),
     );
   }
 }
 
-// --- 1. AUTH GATE: THE ROUTER ---
+// --- 1. AUTH GATE (The Traffic Controller) ---
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -52,10 +48,12 @@ class AuthGate extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
-        // If not logged in, show Login Screen
-        if (!snapshot.hasData) return const LoginScreen();
+        // If user is NOT logged in, show the new premium login screen
+        if (!snapshot.hasData) {
+          return const StaffLoginScreen();
+        }
 
-        // If logged in, check role in Firestore
+        // If user IS logged in, check their role in Firestore
         return FutureBuilder<DocumentSnapshot>(
           future: FirebaseFirestore.instance.collection('Users').doc(snapshot.data!.uid).get(),
           builder: (context, userSnapshot) {
@@ -66,11 +64,10 @@ class AuthGate extends StatelessWidget {
             final userData = userSnapshot.data?.data() as Map<String, dynamic>?;
             final role = userData?['role'] ?? 'staff';
 
-            if (role == 'admin') {
-              return const DashboardScreen();
-            } else {
-              return StaffResponderView(uid: snapshot.data!.uid);
-            }
+            // Route based on role
+            return role == 'admin' 
+                ? const DashboardScreen() 
+                : StaffResponderView(uid: snapshot.data!.uid);
           },
         );
       },
@@ -78,70 +75,7 @@ class AuthGate extends StatelessWidget {
   }
 }
 
-// --- 2. LOGIN SCREEN ---
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
-
-  @override
-  State<LoginScreen> createState() => _LoginScreenState();
-}
-
-class _LoginScreenState extends State<LoginScreen> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-
-  Future<void> _login() async {
-    try {
-      final userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
-
-      // Person 3's Logic: Set staff to available upon successful login
-      final userDoc = await FirebaseFirestore.instance.collection('Users').doc(userCredential.user!.uid).get();
-      if (userDoc.exists && userDoc['role'] == 'staff') {
-        await FirebaseFirestore.instance.collection('Staff').doc(userCredential.user!.uid).set({
-          'isAvailable': true,
-          'lastLogin': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Login Failed: $e")));
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Container(
-          width: 400,
-          padding: const EdgeInsets.all(30),
-          decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(15)),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text("CRISIS LOGIN", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.red)),
-              const SizedBox(height: 30),
-              TextField(controller: _emailController, decoration: const InputDecoration(labelText: "Email")),
-              TextField(controller: _passwordController, decoration: const InputDecoration(labelText: "Password"), obscureText: true),
-              const SizedBox(height: 40),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50), backgroundColor: Colors.red[900]),
-                onPressed: _login,
-                child: const Text("ACCESS TERMINAL"),
-              )
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// --- 3. DISPATCHER DASHBOARD (ADMIN VIEW) ---
+// --- 2. DISPATCHER DASHBOARD (ADMIN VIEW) ---
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -156,17 +90,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.red[900],
-        title: const Text("🚨 COORDINATION DASHBOARD"),
+        backgroundColor: const Color(0xFF2563EB),
+        elevation: 0,
+        title: const Text("🚨 Emergency Dispatch", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         actions: [
-          IconButton(icon: const Icon(Icons.logout), onPressed: () => FirebaseAuth.instance.signOut()),
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            onPressed: () => FirebaseAuth.instance.signOut(),
+          )
         ],
       ),
       body: Row(
         children: [
           // Sidebar: Incident List
           SizedBox(
-            width: 380,
+            width: 350,
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
                   .collection('Incidents')
@@ -175,19 +113,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                 final docs = snapshot.data!.docs;
+                
+                if (docs.isEmpty) return const Center(child: Text("No active incidents."));
 
                 return ListView.builder(
                   itemCount: docs.length,
                   itemBuilder: (context, index) {
                     final data = docs[index].data() as Map<String, dynamic>;
-                    final id = docs[index].id;
+                    bool isSelected = _selectedIncidentId == docs[index].id;
+
                     return ListTile(
-                      selected: _selectedIncidentId == id,
-                      selectedTileColor: Colors.white10,
-                      onTap: () => setState(() => _selectedIncidentId = id),
-                      leading: Icon(Icons.warning, color: data['type'] == 'Fire' ? Colors.red : Colors.blue),
-                      title: Text("Room ${data['location']}"),
+                      selected: isSelected,
+                      selectedTileColor: const Color(0xFFEFF6FF),
+                      onTap: () => setState(() => _selectedIncidentId = docs[index].id),
+                      leading: Icon(Icons.warning_amber_rounded, color: isSelected ? Colors.blue : Colors.grey),
+                      title: Text("Room ${data['location']}", style: const TextStyle(fontWeight: FontWeight.bold)),
                       subtitle: Text("${data['type']} • ${data['status']}"),
+                      trailing: const Icon(Icons.chevron_right, size: 16),
                     );
                   },
                 );
@@ -197,40 +139,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const VerticalDivider(width: 1),
           // Main Panel: Incident Details & Dispatch
           Expanded(
-            child: _selectedIncidentId == null
-                ? const Center(child: Text("Select an active incident from the sidebar"))
-                : IncidentDetails(
-                    key: ValueKey(_selectedIncidentId), 
-                    incidentId: _selectedIncidentId!,
-                    onResolved: () => setState(() => _selectedIncidentId = null),
-                  ),
-          ),
+            child: _selectedIncidentId == null 
+              ? const Center(child: Text("Select an incident to view details and dispatch staff"))
+              : IncidentDetailsPanel(incidentId: _selectedIncidentId!),
+          )
         ],
       ),
     );
   }
 }
 
-// --- 4. INCIDENT DETAILS & DISPATCH LOGIC ---
-class IncidentDetails extends StatefulWidget {
+// --- 3. DETAILS & STAFF DISPATCH PANEL ---
+class IncidentDetailsPanel extends StatelessWidget {
   final String incidentId;
-  final VoidCallback onResolved;
-  const IncidentDetails({super.key, required this.incidentId, required this.onResolved});
-
-  @override
-  State<IncidentDetails> createState() => _IncidentDetailsState();
-}
-
-class _IncidentDetailsState extends State<IncidentDetails> {
-  String? _selectedStaffId;
-  String? _selectedStaffName;
+  const IncidentDetailsPanel({super.key, required this.incidentId});
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('Incidents').doc(widget.incidentId).snapshots(),
+      stream: FirebaseFirestore.instance.collection('Incidents').doc(incidentId).snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || !snapshot.data!.exists) return const Center(child: Text("Loading..."));
+        if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox();
         final data = snapshot.data!.data() as Map<String, dynamic>;
 
         return Padding(
@@ -238,69 +167,51 @@ class _IncidentDetailsState extends State<IncidentDetails> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(data['type']?.toUpperCase() ?? "EMERGENCY", 
-                  style: const TextStyle(fontSize: 42, fontWeight: FontWeight.w900, color: Colors.red)),
-              Text("Location: Room ${data['location']}", style: const TextStyle(fontSize: 24)),
+              Text(data['type'].toString().toUpperCase(), 
+                  style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: Colors.redAccent)),
+              Text("LOCATION: Room ${data['location']}", 
+                  style: const TextStyle(fontSize: 20, color: Colors.grey, fontWeight: FontWeight.w500)),
               const Divider(height: 60),
-              const Text("AVAILABLE STAFF", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+              const Text("AVAILABLE RESPONDERS", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 20),
-              // Horizontal list of online staff
-              SizedBox(
-                height: 120,
+              Expanded(
                 child: StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance.collection('Staff').where('isAvailable', isEqualTo: true).snapshots(),
-                  builder: (context, staffSnapshot) {
-                    if (!staffSnapshot.hasData) return const LinearProgressIndicator();
-                    final staffDocs = staffSnapshot.data!.docs;
-                    if (staffDocs.isEmpty) return const Text("No staff currently online.");
-
-                    return ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: staffDocs.length,
-                      itemBuilder: (context, index) {
-                        final staff = staffDocs[index].data() as Map<String, dynamic>;
-                        final sId = staffDocs[index].id;
-                        final isSelected = _selectedStaffId == sId;
-                        return GestureDetector(
-                          onTap: () => setState(() { _selectedStaffId = sId; _selectedStaffName = staff['name']; }),
-                          child: Container(
-                            width: 150, margin: const EdgeInsets.only(right: 15),
-                            decoration: BoxDecoration(
-                              color: isSelected ? Colors.blue.withValues(alpha : 0.2) : Colors.white10,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: isSelected ? Colors.blue : Colors.transparent, width: 2),
-                            ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.person, color: isSelected ? Colors.blue : Colors.white),
-                                Text(staff['name'] ?? "Unknown", style: const TextStyle(fontWeight: FontWeight.bold)),
-                              ],
+                  stream: FirebaseFirestore.instance
+                      .collection('Staff')
+                      .where('isAvailable', isEqualTo: true)
+                      .snapshots(),
+                  builder: (context, staffSnap) {
+                    if (!staffSnap.hasData) return const LinearProgressIndicator();
+                    if (staffSnap.data!.docs.isEmpty) return const Text("No staff currently available.");
+                    
+                    return ListView(
+                      children: staffSnap.data!.docs.map((doc) {
+                        final staff = doc.data() as Map<String, dynamic>;
+                        return Card(
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(side: BorderSide(color: Colors.grey.shade200), borderRadius: BorderRadius.circular(12)),
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: ListTile(
+                            leading: const CircleAvatar(backgroundColor: Color(0xFFDBEAFE), child: Icon(Icons.person, color: Colors.blue)),
+                            title: Text(staff['name'] ?? "Responder"),
+                            trailing: ElevatedButton(
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563EB), foregroundColor: Colors.white),
+                              onPressed: () => _dispatch(doc.id, staff['name']),
+                              child: const Text("Dispatch"),
                             ),
                           ),
                         );
-                      },
+                      }).toList(),
                     );
                   },
                 ),
               ),
-              const Spacer(),
-              if (data['assignedStaff'] != null)
-                Text("Assigned to: ${data['assignedStaff']}", style: const TextStyle(color: Colors.green, fontSize: 18)),
               const SizedBox(height: 20),
-              Row(
-                children: [
-                  ElevatedButton(
-                    onPressed: _selectedStaffId == null ? null : _dispatchStaff,
-                    child: const Text("DISPATCH"),
-                  ),
-                  const SizedBox(width: 15),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
-                    onPressed: () => _updateStatus("Resolved", data['assignedStaffId']),
-                    child: const Text("MARK RESOLVED"),
-                  ),
-                ],
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.all(20)),
+                onPressed: () => FirebaseFirestore.instance.collection('Incidents').doc(incidentId).update({'status': 'Resolved'}),
+                icon: const Icon(Icons.check_circle_outline),
+                label: const Text("MARK AS RESOLVED"),
               )
             ],
           ),
@@ -309,32 +220,17 @@ class _IncidentDetailsState extends State<IncidentDetails> {
     );
   }
 
-  void _dispatchStaff() async {
-    await FirebaseFirestore.instance.collection('Incidents').doc(widget.incidentId).update({
+  void _dispatch(String staffId, String? name) {
+    FirebaseFirestore.instance.collection('Incidents').doc(incidentId).update({
       'status': 'Assigned',
-      'assignedStaff': _selectedStaffName,
-      'assignedStaffId': _selectedStaffId,
+      'assignedStaff': name,
     });
-    // Set staff member to busy
-    await FirebaseFirestore.instance.collection('Staff').doc(_selectedStaffId).update({'isAvailable': false});
-  }
-
-  void _updateStatus(String status, String? staffId) async {
-    Map<String, dynamic> updateData = {'status': status};
-    if (status == "Resolved") {
-      updateData['assignedStaff'] = FieldValue.delete();
-      updateData['assignedStaffId'] = FieldValue.delete();
-      // Free up the staff member again
-      if (staffId != null) {
-        await FirebaseFirestore.instance.collection('Staff').doc(staffId).update({'isAvailable': true});
-      }
-      widget.onResolved();
-    }
-    await FirebaseFirestore.instance.collection('Incidents').doc(widget.incidentId).update(updateData);
+    // Mark staff as busy
+    FirebaseFirestore.instance.collection('Staff').doc(staffId).update({'isAvailable': false});
   }
 }
 
-// --- 5. STAFF RESPONDER VIEW ---
+// --- 4. STAFF RESPONDER VIEW ---
 class StaffResponderView extends StatelessWidget {
   final String uid;
   const StaffResponderView({super.key, required this.uid});
@@ -343,23 +239,25 @@ class StaffResponderView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("RESPONDER TERMINAL"),
+        title: const Text("Responder Terminal"),
         actions: [
-          IconButton(icon: const Icon(Icons.logout), onPressed: () async {
-            // Person 3's Logic: Set unavailable when logging out
-            await FirebaseFirestore.instance.collection('Staff').doc(uid).update({'isAvailable': false});
-            await FirebaseAuth.instance.signOut();
-          }),
+          IconButton(
+            icon: const Icon(Icons.logout), 
+            onPressed: () async {
+              await FirebaseFirestore.instance.collection('Staff').doc(uid).update({'isAvailable': false});
+              await FirebaseAuth.instance.signOut();
+            }
+          )
         ],
       ),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.radar, size: 80, color: Colors.greenAccent),
-            const SizedBox(height: 20),
-            const Text("Online & Waiting for Alerts...", style: TextStyle(fontSize: 20)),
-            const SizedBox(height: 10),
+            const Icon(Icons.radar_rounded, size: 100, color: Colors.blue),
+            const SizedBox(height: 24),
+            const Text("Online & Awaiting Dispatch", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
             Text("User ID: $uid", style: const TextStyle(color: Colors.grey)),
           ],
         ),
